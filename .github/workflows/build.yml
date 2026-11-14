@@ -1,0 +1,115 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: Rust / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            binary: la-rs
+          - os: macos-15
+            target: aarch64-apple-darwin
+            binary: la-rs
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            binary: la-rs.exe
+          - os: windows-2022
+            target: i686-pc-windows-msvc
+            binary: la-rs.exe
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      # rustup reads the pinned version and components from rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Install target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        if: runner.os == 'Linux'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Build workspace
+        run: cargo build --workspace --release --locked --target ${{ matrix.target }}
+
+      - name: Test workspace
+        run: cargo test --workspace --release --locked --target ${{ matrix.target }}
+
+      - name: Upload CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: la-rs-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+          if-no-files-found: error
+
+  foobar2000:
+    name: foobar2000 / x86 + x64
+    # The C++ projects use the Visual Studio 2022 v143 toolset.
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Build and package component for both architectures
+        run: ./foobar2000/build.ps1 -Platform All
+
+      - name: Build host test drivers for both architectures
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (!$msbuild) { throw 'MSBuild was not found.' }
+          foreach ($platform in @('Win32', 'x64')) {
+            & $msbuild foobar2000/host_test.vcxproj /m /nodeReuse:false /nologo /v:minimal /p:Configuration=Release "/p:Platform=$platform"
+            if ($LASTEXITCODE -ne 0) { throw "Host test driver build failed for $platform." }
+          }
+
+      - name: Upload installable component
+        uses: actions/upload-artifact@v7
+        with:
+          name: foo_input_la
+          path: foobar2000/dist/foo_input_la.fb2k-component
+          if-no-files-found: error
+
+      - name: Upload host test drivers
+        uses: actions/upload-artifact@v7
+        with:
+          name: foo_la_test
+          path: |
+            foobar2000/build/test-driver/Win32/foo_la_test.dll
+            foobar2000/build/test-driver/x64/foo_la_test.dll
+          if-no-files-found: error

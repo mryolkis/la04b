@@ -1,0 +1,7 @@
+/target/
+/local/
+/foobar2000/vendor/
+/foobar2000/build/
+/foobar2000/dist/
+__pycache__/
+*.pyc

@@ -1,0 +1,19 @@
+[workspace]
+members = ["foobar2000/rust"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.100"
+
+[package]
+name = "la04"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Native La 0.4b lossless audio encoder and decoder"
+readme = "README.md"
+
+[[bin]]
+name = "la-rs"
+path = "src/main.rs"
